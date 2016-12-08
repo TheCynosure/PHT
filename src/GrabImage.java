@@ -22,6 +22,10 @@ public class GrabImage implements KeyListener {
         grabImage.mainIm();
     }
 
+    private int toGrayScale(Color color) {
+        return (color.getRed() + color.getBlue() + color.getGreen()) / 3;
+    }
+
     public void mainIm() {
         JFrame jFrame = new JFrame("Fun stuff");
         jFrame.setSize(600, 600);
@@ -41,12 +45,16 @@ public class GrabImage implements KeyListener {
         int prevTotalPixels = 0;
         int xyScanPadding = 50;
 
+        BufferedImage lastImage = new BufferedImage(600, 600, BufferedImage.TYPE_INT_ARGB);
+        boolean dryRun = false;
         while(true) {
             BufferedImage image = webcam.getImage();
             if(firstTime) {
                 avgPoint = new Point(image.getWidth() / 2, image.getHeight() / 2);
                 firstTime = false;
             }
+            BufferedImage beforeModImage = new BufferedImage(600, 600, BufferedImage.TYPE_INT_ARGB);
+            beforeModImage.getGraphics().drawImage(image, 0, 0, null);
             if(image != null) {
                 if (eval) {
 //                    System.out.println("Evaluating Skin Tone");
@@ -67,15 +75,14 @@ public class GrabImage implements KeyListener {
                     eval = false;
                     System.out.println("Beginning to Track");
                     track = true;
-                    panel.setBackground(skinColor);
                 }
                 if (track) {
                     frameCounter++;
                     long x = 0, y = 0;
                     int totalPixels = 0;
-                    int bluePadding = 10;
+                    int bluePadding = 5;
                     int redPadding = 10;
-                    int greenPadding = 10;
+                    int greenPadding = 5;
                     totalGreen = 0;
                     totalRed = 0;
                     totalBlue = 0;
@@ -84,7 +91,7 @@ public class GrabImage implements KeyListener {
                             //Get the color of the current pixel
                             Color color = new Color(image.getRGB(col, row));
                             //Within Color Ranges?
-                            if (isWithin(color.getRed(), skinColor.getRed(), redPadding) && isWithin(color.getGreen(), skinColor.getGreen(), greenPadding) && isWithin(color.getBlue(), skinColor.getBlue(), bluePadding) && isWithin(col, avgPoint.x, xyScanPadding) && isWithin(row, avgPoint.y, xyScanPadding)) {
+                            if (isWithin(col, avgPoint.x, xyScanPadding) && isWithin(row, avgPoint.y, xyScanPadding) && isWithin(color.getRed(), skinColor.getRed(), redPadding) && isWithin(color.getGreen(), skinColor.getGreen(), greenPadding) && isWithin(color.getBlue(), skinColor.getBlue(), bluePadding) && isChanged(image, lastImage, col, row)) {
                                     x += col;
                                     y += row;
                                     totalPixels++;
@@ -94,40 +101,47 @@ public class GrabImage implements KeyListener {
                                     totalRed += color.getRed();
                                     totalGreen += color.getGreen();
                                     totalBlue += color.getBlue();
-                            } else {
-//                                image.setRGB(col, row, 0);
                             }
+//                            else {
+////                                image.setRGB(col, row, 0);
+//                            }
                         }
                     }
                     if(totalPixels != 0) {
+                        dryRun = false;
                         System.out.println("XY Scan Padding " + xyScanPadding);
-                        panel.getGraphics().setColor(new Color(1f,1f,1f));
-                        image.getGraphics().setColor(Color.RED);
-                        image.getGraphics().fillRect((int) ((x / totalPixels)), (int) ((y / totalPixels)), 2, 2);
-                        avgPoint = new Point((int)(x / totalPixels), (int)(y / totalPixels));
+                        int newX = (int) x / totalPixels;
+                        int newY = (int) y / totalPixels;
+                        avgPoint = new Point(newX, newY);
 //                        skinColor = new Color(totalRed / totalPixels / 255.0f, totalGreen / totalPixels / 255.0f, totalBlue / totalPixels / 255.0f);
-                        if(totalPixels > prevTotalPixels) {
-                            xyScanPadding--;
-                            if(xyScanPadding < 10) {
-                                xyScanPadding = 10;
-                            }
-                        } else if(totalPixels < prevTotalPixels) {
-                            xyScanPadding++;
-                            if(xyScanPadding > 50) {
-                                xyScanPadding = 50;
-                            }
-                        }
+//                        if(totalPixels > prevTotalPixels) {
+//                            xyScanPadding-=10;
+//                            if(xyScanPadding < 10) {
+//                                xyScanPadding = 10;
+//                            }
+//                        } else if(totalPixels < prevTotalPixels) {
+//                            xyScanPadding+=10;
+//                            if(xyScanPadding > 50) {
+//                                xyScanPadding = 50;
+//                            }
+//                        }
                         prevTotalPixels = totalPixels;
+                    } else {
+                        dryRun = true;
                     }
+                    image.getGraphics().fillRect(avgPoint.x, avgPoint.y, 2, 2);
+                    image.getGraphics().drawRect(avgPoint.x - xyScanPadding, avgPoint.y - xyScanPadding, xyScanPadding * 2, xyScanPadding * 2);
                 }
                 panel.getGraphics().drawImage(image.getScaledInstance(600, 600, Image.SCALE_DEFAULT), 0, 0, null);
                 lastImage = image;
-                if(frameCounter != 0 && frameCounter % 10 == 0) {
+                //EVAL BREAKS THE NEW MOVEMENT METHOD.
+                if(frameCounter != 0 && frameCounter % 5 == 0 && dryRun) {
                     frameCounter = 0;
                     eval = true;
-                    savedXYScanPadding = xyScanPadding;
                 }
+                lastImage = beforeModImage;
             }
+            firstTime = false;
         }
 
     }
@@ -143,6 +157,17 @@ public class GrabImage implements KeyListener {
         float targetVal = diff * percentage;
         return (int) (targetMin + targetVal);
 
+    }
+
+    private boolean isChanged(BufferedImage image, BufferedImage lastImage, int col, int row) {
+        Color color = new Color(lastImage.getRGB(col, row));
+        int greyScale = (color.getRed() + color.getBlue() + color.getGreen()) / 3;
+        Color newColor = new Color(image.getRGB(col, row));
+        int newGreyScale = (newColor.getRed() + newColor.getBlue() + newColor.getGreen()) / 3;
+        if (isWithin(greyScale, newGreyScale, 30)) {
+            return false;
+        }
+        return true;
     }
 
     public void keyTyped(KeyEvent e) {
